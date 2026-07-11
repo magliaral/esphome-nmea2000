@@ -1,0 +1,1 @@
+# esphome-nmea2000
