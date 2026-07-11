@@ -4,7 +4,10 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
+#include <N2kMessages.h>
+
 #include <cinttypes>
+#include <cmath>
 #include <cstdio>
 
 namespace esphome {
@@ -13,6 +16,14 @@ namespace nmea2000 {
 static const char *const TAG = "nmea2000";
 
 static const uint32_t BUS_CHECK_INTERVAL_MS = 2000;
+
+// Missing sensors, sensors without a state yet and NaN states are all
+// encoded as N2K "not available".
+static double sensor_value_or_na(sensor::Sensor *sens) {
+  if (sens == nullptr || !sens->has_state() || std::isnan(sens->state))
+    return N2kDoubleNA;
+  return sens->state;
+}
 
 void Nmea2000Component::setup() {
   this->n2k_ = new Nmea2000Twai(this->tx_pin_, this->rx_pin_);  // NOLINT
@@ -56,7 +67,89 @@ void Nmea2000Component::loop() {
     ESP_LOGW(TAG, "Source address changed to %u (persisted)", address);
   }
 
+  this->process_transmit_entries_();
   this->check_bus_status_();
+}
+
+void Nmea2000Component::add_battery_status(uint32_t interval_ms, uint8_t instance, sensor::Sensor *voltage,
+                                           sensor::Sensor *current, sensor::Sensor *temperature) {
+  this->transmit_entries_.push_back(
+      {PgnKind::BATTERY_STATUS, interval_ms, instance, 0, voltage, current, temperature});
+}
+
+void Nmea2000Component::add_dc_detailed_status(uint32_t interval_ms, uint8_t instance, DcType dc_type,
+                                               sensor::Sensor *state_of_charge, sensor::Sensor *time_remaining) {
+  this->transmit_entries_.push_back({PgnKind::DC_DETAILED_STATUS, interval_ms, instance,
+                                     static_cast<uint8_t>(dc_type), state_of_charge, time_remaining, nullptr});
+}
+
+void Nmea2000Component::add_temperature(uint32_t interval_ms, uint8_t instance, TempSource source,
+                                        sensor::Sensor *actual) {
+  this->transmit_entries_.push_back(
+      {PgnKind::TEMPERATURE, interval_ms, instance, static_cast<uint8_t>(source), actual, nullptr, nullptr});
+}
+
+void Nmea2000Component::add_humidity(uint32_t interval_ms, uint8_t instance, HumiditySource source,
+                                     sensor::Sensor *actual) {
+  this->transmit_entries_.push_back(
+      {PgnKind::HUMIDITY, interval_ms, instance, static_cast<uint8_t>(source), actual, nullptr, nullptr});
+}
+
+void Nmea2000Component::process_transmit_entries_() {
+  const uint32_t now = millis();
+  for (auto &entry : this->transmit_entries_) {
+    if (now - entry.last_send < entry.interval_ms)
+      continue;
+    entry.last_send = now;
+    this->send_entry_(entry);
+    // At most one PGN per loop() pass to keep the loop budget small; due
+    // entries fire on the immediately following passes (µs apart).
+    break;
+  }
+}
+
+void Nmea2000Component::send_entry_(TransmitEntry &entry) {
+  tN2kMsg msg;
+  switch (entry.kind) {
+    case PgnKind::BATTERY_STATUS: {
+      double temperature = sensor_value_or_na(entry.c);
+      if (!N2kIsNA(temperature))
+        temperature = CToKelvin(temperature);
+      SetN2kDCBatStatus(msg, entry.instance, sensor_value_or_na(entry.a), sensor_value_or_na(entry.b), temperature,
+                        0xff);
+      break;
+    }
+    case PgnKind::DC_DETAILED_STATUS: {
+      double soc = sensor_value_or_na(entry.a);
+      unsigned char soc_pct = N2kUInt8NA;
+      if (!N2kIsNA(soc))
+        soc_pct = static_cast<unsigned char>(clamp(soc, 0.0, 100.0));
+      double time_remaining = sensor_value_or_na(entry.b);
+      if (!N2kIsNA(time_remaining))
+        time_remaining *= 60.0;  // configured in minutes, PGN wants seconds
+      SetN2kDCStatus(msg, 0xff, entry.instance, static_cast<tN2kDCType>(entry.enum_value), soc_pct, N2kUInt8NA,
+                     time_remaining);
+      break;
+    }
+    case PgnKind::TEMPERATURE: {
+      double temperature = sensor_value_or_na(entry.a);
+      if (!N2kIsNA(temperature))
+        temperature = CToKelvin(temperature);
+      SetN2kTemperature(msg, 0xff, entry.instance, static_cast<tN2kTempSource>(entry.enum_value), temperature);
+      break;
+    }
+    case PgnKind::HUMIDITY: {
+      SetN2kHumidity(msg, 0xff, entry.instance, static_cast<tN2kHumiditySource>(entry.enum_value),
+                     sensor_value_or_na(entry.a));
+      break;
+    }
+  }
+
+  if (this->n2k_->SendMsg(msg)) {
+    ESP_LOGV(TAG, "TX PGN %lu instance %u", msg.PGN, entry.instance);
+  } else {
+    ESP_LOGV(TAG, "TX PGN %lu instance %u failed (queued frames full?)", msg.PGN, entry.instance);
+  }
 }
 
 void Nmea2000Component::check_bus_status_() {
@@ -105,6 +198,7 @@ void Nmea2000Component::dump_config() {
                 this->manufacturer_code_, this->device_function_, this->device_class_);
   ESP_LOGCONFIG(TAG, "  Product: '%s' code=%u sw='%s'", this->product_name_.c_str(), this->product_code_,
                 this->software_version_.c_str());
+  ESP_LOGCONFIG(TAG, "  Transmit entries: %u", static_cast<unsigned>(this->transmit_entries_.size()));
 }
 
 }  // namespace nmea2000
