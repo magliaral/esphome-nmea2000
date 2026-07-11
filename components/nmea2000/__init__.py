@@ -60,6 +60,8 @@ CONFIG_SCHEMA = cv.All(
 
 
 async def to_code(config):
+    cg.add_library("ttlappalainen/NMEA2000-library", "4.24.1")
+
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 

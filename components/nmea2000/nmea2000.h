@@ -1,6 +1,9 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/preferences.h"
+
+#include "nmea2000_twai.h"
 
 #include <string>
 
@@ -28,6 +31,8 @@ class Nmea2000Component : public Component {
   void set_software_version(const std::string &software_version) { this->software_version_ = software_version; }
 
  protected:
+  void check_bus_status_();
+
   uint8_t tx_pin_{6};
   uint8_t rx_pin_{7};
 
@@ -39,6 +44,11 @@ class Nmea2000Component : public Component {
   std::string product_name_{"ESPHome NMEA2000"};
   uint16_t product_code_{100};
   std::string software_version_{"1.0.0"};
+
+  Nmea2000Twai *n2k_{nullptr};
+  ESPPreferenceObject source_pref_;
+  uint32_t last_bus_check_{0};
+  bool error_passive_logged_{false};
 };
 
 }  // namespace nmea2000
