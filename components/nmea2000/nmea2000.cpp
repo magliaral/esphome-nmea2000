@@ -17,6 +17,10 @@ static const char *const TAG = "nmea2000";
 
 static const uint32_t BUS_CHECK_INTERVAL_MS = 2000;
 
+// tNMEA2000::SetMsgHandler takes a plain function pointer, so the single
+// component instance is dispatched through this trampoline.
+static Nmea2000Component *g_component = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
 // Missing sensors, sensors without a state yet and NaN states are all
 // encoded as N2K "not available".
 static double sensor_value_or_na(sensor::Sensor *sens) {
@@ -46,6 +50,11 @@ void Nmea2000Component::setup() {
                                    this->manufacturer_code_);
   this->n2k_->SetMode(tNMEA2000::N2km_ListenAndNode, source);
   this->n2k_->EnableForward(false);
+  g_component = this;
+  this->n2k_->SetMsgHandler([](const tN2kMsg &msg) {
+    if (g_component != nullptr)
+      g_component->handle_message_(msg);
+  });
   this->n2k_->SetN2kCANMsgBufSize(8);
   this->n2k_->SetN2kCANSendFrameBufSize(150);
 
@@ -152,6 +161,109 @@ void Nmea2000Component::send_entry_(TransmitEntry &entry) {
   }
 }
 
+void Nmea2000Component::publish_(SensorType type, float value) {
+  for (auto *sens : this->sensors_) {
+    if (sens->get_type() == type)
+      sens->publish_state(value);
+  }
+}
+
+void Nmea2000Component::publish_wind_(SensorType type, uint8_t reference, float value) {
+  for (auto *sens : this->sensors_) {
+    if (sens->get_type() == type && static_cast<uint8_t>(sens->get_wind_reference()) == reference)
+      sens->publish_state(value);
+  }
+}
+
+void Nmea2000Component::handle_message_(const tN2kMsg &msg) {
+  if (this->sensors_.empty())
+    return;
+
+  switch (msg.PGN) {
+    case 129025UL: {  // Position, Rapid Update
+      double latitude, longitude;
+      if (!ParseN2kPGN129025(msg, latitude, longitude))
+        return;
+      ESP_LOGV(TAG, "RX 129025 lat=%.6f lon=%.6f", latitude, longitude);
+      if (!N2kIsNA(latitude))
+        this->publish_(SensorType::LATITUDE, latitude);
+      if (!N2kIsNA(longitude))
+        this->publish_(SensorType::LONGITUDE, longitude);
+      break;
+    }
+    case 129026UL: {  // COG & SOG, Rapid Update
+      unsigned char sid;
+      tN2kHeadingReference reference;
+      double cog, sog;
+      if (!ParseN2kPGN129026(msg, sid, reference, cog, sog))
+        return;
+      ESP_LOGV(TAG, "RX 129026 cog=%.3f sog=%.2f ref=%d", cog, sog, static_cast<int>(reference));
+      if (!N2kIsNA(sog))
+        this->publish_(SensorType::SPEED_OVER_GROUND, msToKnots(sog));
+      // Only publish COG referenced to true north; magnetic COG would need
+      // variation applied and is not comparable across sources.
+      if (!N2kIsNA(cog) && reference == N2khr_true)
+        this->publish_(SensorType::COURSE_OVER_GROUND, RadToDeg(cog));
+      break;
+    }
+    case 127250UL: {  // Vessel Heading
+      unsigned char sid;
+      double heading, deviation, variation;
+      tN2kHeadingReference reference;
+      if (!ParseN2kPGN127250(msg, sid, heading, deviation, variation, reference))
+        return;
+      ESP_LOGV(TAG, "RX 127250 heading=%.3f ref=%d", heading, static_cast<int>(reference));
+      if (!N2kIsNA(heading))
+        this->publish_(SensorType::HEADING, RadToDeg(heading));
+      break;
+    }
+    case 128267UL: {  // Water Depth
+      unsigned char sid;
+      double depth, offset, range;
+      if (!ParseN2kPGN128267(msg, sid, depth, offset, range))
+        return;
+      ESP_LOGV(TAG, "RX 128267 depth=%.2f offset=%.2f", depth, offset);
+      if (N2kIsNA(depth))
+        return;
+      // Positive offset = distance transducer to waterline: publish depth
+      // below surface. Negative offset (below keel) or NA: raw transducer depth.
+      if (!N2kIsNA(offset) && offset > 0.0)
+        depth += offset;
+      this->publish_(SensorType::WATER_DEPTH, depth);
+      break;
+    }
+    case 128259UL: {  // Speed, Water Referenced
+      unsigned char sid;
+      double water_referenced, ground_referenced;
+      tN2kSpeedWaterReferenceType swrt;
+      if (!ParseN2kPGN128259(msg, sid, water_referenced, ground_referenced, swrt))
+        return;
+      ESP_LOGV(TAG, "RX 128259 stw=%.2f", water_referenced);
+      if (!N2kIsNA(water_referenced))
+        this->publish_(SensorType::SPEED_THROUGH_WATER, msToKnots(water_referenced));
+      break;
+    }
+    case 130306UL: {  // Wind Data
+      unsigned char sid;
+      double wind_speed, wind_angle;
+      tN2kWindReference reference;
+      if (!ParseN2kPGN130306(msg, sid, wind_speed, wind_angle, reference))
+        return;
+      ESP_LOGV(TAG, "RX 130306 speed=%.2f angle=%.3f ref=%d", wind_speed, wind_angle, static_cast<int>(reference));
+      if (reference > N2kWind_True_water)
+        return;  // error / unavailable
+      auto ref = static_cast<uint8_t>(reference);
+      if (!N2kIsNA(wind_speed))
+        this->publish_wind_(SensorType::WIND_SPEED, ref, msToKnots(wind_speed));
+      if (!N2kIsNA(wind_angle))
+        this->publish_wind_(SensorType::WIND_ANGLE, ref, RadToDeg(wind_angle));
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 void Nmea2000Component::check_bus_status_() {
   uint32_t now = millis();
   if (now - this->last_bus_check_ < BUS_CHECK_INTERVAL_MS)
@@ -199,6 +311,7 @@ void Nmea2000Component::dump_config() {
   ESP_LOGCONFIG(TAG, "  Product: '%s' code=%u sw='%s'", this->product_name_.c_str(), this->product_code_,
                 this->software_version_.c_str());
   ESP_LOGCONFIG(TAG, "  Transmit entries: %u", static_cast<unsigned>(this->transmit_entries_.size()));
+  ESP_LOGCONFIG(TAG, "  Registered sensors: %u", static_cast<unsigned>(this->sensors_.size()));
 }
 
 }  // namespace nmea2000

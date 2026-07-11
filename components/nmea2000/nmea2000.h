@@ -5,6 +5,7 @@
 #include "esphome/components/sensor/sensor.h"
 
 #include "nmea2000_twai.h"
+#include "nmea2000_sensor.h"
 
 #include <string>
 #include <vector>
@@ -74,6 +75,11 @@ class Nmea2000Component : public Component {
   void add_temperature(uint32_t interval_ms, uint8_t instance, TempSource source, sensor::Sensor *actual);
   void add_humidity(uint32_t interval_ms, uint8_t instance, HumiditySource source, sensor::Sensor *actual);
 
+  void register_sensor(Nmea2000Sensor *sens) { this->sensors_.push_back(sens); }
+
+  // Called from the tNMEA2000 message-handler trampoline; not part of the public API.
+  void handle_message_(const tN2kMsg &msg);
+
  protected:
   enum class PgnKind : uint8_t {
     BATTERY_STATUS,      // PGN 127508, single frame
@@ -98,6 +104,8 @@ class Nmea2000Component : public Component {
   void process_transmit_entries_();
   void send_entry_(TransmitEntry &entry);
   void check_bus_status_();
+  void publish_(SensorType type, float value);
+  void publish_wind_(SensorType type, uint8_t reference, float value);
 
   uint8_t tx_pin_{6};
   uint8_t rx_pin_{7};
@@ -112,6 +120,7 @@ class Nmea2000Component : public Component {
   std::string software_version_{"1.0.0"};
 
   std::vector<TransmitEntry> transmit_entries_;
+  std::vector<Nmea2000Sensor *> sensors_;
 
   Nmea2000Twai *n2k_{nullptr};
   ESPPreferenceObject source_pref_;
