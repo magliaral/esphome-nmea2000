@@ -21,8 +21,9 @@ currently no NMEA2000 component in ESPHome core (see
   temperature (130312 and 130316 extended range) and humidity (130313).
   Missing or unavailable values are encoded as N2K *not available*.
 - **Sensor platform for navigation data**: position, SOG/COG, heading, water
-  depth, speed through water and wind (129025, 129026, 127250, 128267,
-  128259, 130306) with user-friendly units (degrees, knots, meters).
+  depth, speed through water, wind and water temperature (129025, 129026,
+  127250, 128267, 128259, 130306, 130310/130312/130316) with user-friendly
+  units (degrees, knots, meters, °C).
 - **Robust bus handling**: fixed 250 kbit/s (NMEA2000 standard), bus-off
   recovery, error-passive warnings, non-blocking — the ESPHome loop is never
   stalled.
@@ -167,6 +168,7 @@ A complete, standalone-compiling example for the LILYGO T-Connect-Pro is in
   | `SPEED_THROUGH_WATER` | 128259 | kn | |
   | `WIND_SPEED` | 130306 | kn | filtered by `wind_reference` |
   | `WIND_ANGLE` | 130306 | ° | filtered by `wind_reference` |
+  | `WATER_TEMPERATURE` | 130310, 130312, 130316 | °C | 130312/130316 only with source `sea`; first available source per frame wins |
 
 - **wind_reference** (*Optional*, default `apparent`, wind types only): Which
   wind reference to listen to — `apparent`, `true_boat`, `true_water`,

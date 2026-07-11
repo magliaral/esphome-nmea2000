@@ -256,6 +256,32 @@ void Nmea2000Component::handle_message_(const tN2kMsg &msg) {
         this->publish_(SensorType::SPEED_THROUGH_WATER, msToKnots(water_referenced));
       break;
     }
+    case 130310UL: {  // Environmental Parameters
+      unsigned char sid;
+      double water_temperature, air_temperature, pressure;
+      if (!ParseN2kPGN130310(msg, sid, water_temperature, air_temperature, pressure))
+        return;
+      ESP_LOGV(TAG, "RX 130310 water_temp=%.2fK", water_temperature);
+      if (!N2kIsNA(water_temperature))
+        this->publish_(SensorType::WATER_TEMPERATURE, KelvinToC(water_temperature));
+      break;
+    }
+    case 130312UL:    // Temperature
+    case 130316UL: {  // Temperature, Extended Range
+      // Some senders only transmit the newer temperature PGNs instead of
+      // 130310; a "sea" source feeds the same WATER_TEMPERATURE sensor.
+      unsigned char sid, instance;
+      tN2kTempSource source;
+      double actual, set_temperature;
+      bool ok = msg.PGN == 130312UL ? ParseN2kPGN130312(msg, sid, instance, source, actual, set_temperature)
+                                    : ParseN2kPGN130316(msg, sid, instance, source, actual, set_temperature);
+      if (!ok)
+        return;
+      ESP_LOGV(TAG, "RX %lu source=%d temp=%.2fK", msg.PGN, static_cast<int>(source), actual);
+      if (source == N2kts_SeaTemperature && !N2kIsNA(actual))
+        this->publish_(SensorType::WATER_TEMPERATURE, KelvinToC(actual));
+      break;
+    }
     case 130306UL: {  // Wind Data
       unsigned char sid;
       double wind_speed, wind_angle;

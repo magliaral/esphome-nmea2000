@@ -11,4 +11,5 @@ secrets.yaml
 *.bin
 __pycache__/
 *.pyc
-sy-alema.yaml
+/sy-alema.yaml
+examples/.gitignore

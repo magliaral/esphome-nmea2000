@@ -15,6 +15,7 @@ enum class SensorType : uint8_t {
   SPEED_THROUGH_WATER,  // PGN 128259
   WIND_SPEED,           // PGN 130306
   WIND_ANGLE,           // PGN 130306
+  WATER_TEMPERATURE,    // PGN 130310, plus 130312/130316 with source "sea"
 };
 
 // Values match tN2kWindReference (N2kTypes.h)

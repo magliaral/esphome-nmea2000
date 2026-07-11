@@ -1,0 +1,157 @@
+# Example configuration for the LILYGO T-Connect-Pro (ESP32-S3-R8) as a
+# NMEA2000 node on SY Alema. The onboard CAN transceiver is wired to
+# TX GPIO6 / RX GPIO7.
+#
+# The template sensors below are stand-ins for the real data sources
+# (battery shunt, DC-DC charger, BME280, ...) so this example compiles
+# standalone. Replace them with your actual sensors.
+
+esphome:
+  name: sy-alema-bridge
+  friendly_name: SY Alema Bridge
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: arduino
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+  # For use outside this repository:
+  # - source: github://magliaral/esphome-nmea2000
+  #   components: [nmea2000]
+
+nmea2000:
+  id: n2k
+  can:
+    tx_pin: GPIO6
+    rx_pin: GPIO7
+    # Bitrate fix 250 kbit/s - bewusst nicht konfigurierbar
+
+  node:
+    source_address: 35         # Wunsch-/Startadresse, Lib claimt ggf. um
+    unique_number: 1
+    manufacturer_code: 2046    # Open Source / DIY
+    device_function: 130       # PC Gateway
+    device_class: 25           # Internetwork Device
+    product_name: "SY Alema Bridge"
+    product_code: 100
+    software_version: "1.0.0"
+    # -> SetDeviceInformation() / SetProductInformation(), Mode: N2km_ListenAndNode
+
+  transmit:
+    - pgn: battery_status              # 127508, Single Frame
+      interval: 2s
+      instance: 0
+      voltage: shunt_battery_voltage
+      current: shunt_battery_current
+      temperature: shunt_battery_temperature
+    - pgn: battery_status
+      interval: 2s
+      instance: 1
+      voltage: orion_battery_voltage   # nicht gesetzte Felder -> not available
+    - pgn: dc_detailed_status          # 127506, Fast Packet (macht die Lib)
+      interval: 2s
+      instance: 0
+      dc_type: battery
+      state_of_charge: shunt_battery_state_of_charge
+      time_remaining: shunt_battery_time_remaining     # Minuten
+    # 130316 statt 130312: Raymarine LightHouse (Axiom) ignoriert 130312
+    # und zeigt Innentemperaturen nur ueber 130316 mit source "inside" an.
+    - pgn: temperature_extended        # 130316
+      interval: 5s
+      instance: 0
+      source: inside
+      actual: salon_temperature
+    - pgn: temperature_extended
+      interval: 5s
+      instance: 1
+      source: refrigeration
+      actual: fridge_temperature
+    - pgn: temperature_extended
+      interval: 5s
+      instance: 2
+      source: engine_room
+      actual: engine_temperature
+    - pgn: humidity                    # 130313
+      interval: 5s
+      instance: 0
+      source: inside
+      actual: salon_humidity
+
+sensor:
+  # --- Dummy-Quellen (im echten Setup durch Shunt/BME280/... ersetzen) ---
+  - platform: template
+    id: shunt_battery_voltage
+  - platform: template
+    id: shunt_battery_current
+  - platform: template
+    id: shunt_battery_temperature
+  - platform: template
+    id: orion_battery_voltage
+  - platform: template
+    id: shunt_battery_state_of_charge
+  - platform: template
+    id: shunt_battery_time_remaining
+  - platform: template
+    id: salon_temperature
+  - platform: template
+    id: fridge_temperature
+  - platform: template
+    id: engine_temperature
+  - platform: template
+    id: salon_humidity
+
+  # --- Navigationsdaten vom NMEA2000-Backbone ---
+  - platform: nmea2000
+    nmea2000_id: n2k
+    type: LATITUDE                     # PGN 129025
+    id: nav_latitude
+    name: "GPS Latitude"
+  - platform: nmea2000
+    type: LONGITUDE                    # PGN 129025
+    id: nav_longitude
+    name: "GPS Longitude"
+  - platform: nmea2000
+    type: SPEED_OVER_GROUND            # PGN 129026
+    id: nav_sog
+    name: "SOG"
+  - platform: nmea2000
+    type: COURSE_OVER_GROUND           # PGN 129026, nur reference == true
+    id: nav_cog
+    name: "COG"
+  - platform: nmea2000
+    type: HEADING                      # PGN 127250
+    id: nav_heading
+    name: "Heading"
+  - platform: nmea2000
+    type: WATER_DEPTH                  # PGN 128267, inkl. Transducer-Offset
+    id: nav_depth
+    name: "Wassertiefe"
+  - platform: nmea2000
+    type: SPEED_THROUGH_WATER          # PGN 128259
+    id: nav_stw
+    name: "Fahrt durchs Wasser"
+  - platform: nmea2000
+    type: WIND_SPEED                   # PGN 130306
+    wind_reference: apparent
+    id: nav_aws
+    name: "Wind Geschwindigkeit scheinbar"
+  - platform: nmea2000
+    type: WIND_ANGLE                   # PGN 130306
+    wind_reference: apparent
+    id: nav_awa
+    name: "Wind Winkel scheinbar"
+  - platform: nmea2000
+    type: WATER_TEMPERATURE            # PGN 130310 (+ 130312/130316 source sea)
+    id: nav_water_temperature
+    name: "Wassertemperatur"
