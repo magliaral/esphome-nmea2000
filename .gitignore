@@ -9,3 +9,5 @@ platformio.ini
 .esphome/
 secrets.yaml
 *.bin
+__pycache__/
+*.pyc
