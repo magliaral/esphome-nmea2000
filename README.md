@@ -18,8 +18,8 @@ currently no NMEA2000 component in ESPHome core (see
   persisted in flash and reused after reboots.
 - **Declarative transmit mapping**: map any ESPHome sensor onto N2K PGNs —
   battery status (127508), DC detailed status / SOC (127506, fast packet),
-  temperature (130312) and humidity (130313). Missing or unavailable values
-  are encoded as N2K *not available*.
+  temperature (130312 and 130316 extended range) and humidity (130313).
+  Missing or unavailable values are encoded as N2K *not available*.
 - **Sensor platform for navigation data**: position, SOG/COG, heading, water
   depth, speed through water and wind (129025, 129026, 127250, 128267,
   128259, 130306) with user-friendly units (degrees, knots, meters).
@@ -67,8 +67,8 @@ nmea2000:
     - pgn: dc_detailed_status          # 127506 (fast packet)
       state_of_charge: shunt_battery_state_of_charge
       time_remaining: shunt_battery_time_remaining   # minutes
-    - pgn: temperature                 # 130312
-      source: main_cabin
+    - pgn: temperature_extended        # 130316 (use this for Raymarine MFDs)
+      source: inside
       actual: salon_temperature
     - pgn: humidity                    # 130313
       actual: salon_humidity
@@ -141,6 +141,12 @@ A complete, standalone-compiling example for the LILYGO T-Connect-Pro is in
       `theoretical_wind_chill`, `heat_index`, `freezer`, `exhaust_gas`,
       `shaft_seal`.
     - **actual** (**Required**): Sensor ID, °C.
+  - `temperature_extended` (PGN 130316, Temperature Extended Range): same
+    options as `temperature`. **Raymarine LightHouse (e.g. Axiom) ignores
+    PGN 130312** and reliably shows cabin temperatures only via 130316 with
+    source `inside` — use `temperature_extended` when the data should show
+    up on a Raymarine MFD. `temperature` and `temperature_extended` are
+    separate PGNs, so the same `instance` may be used in both.
   - `humidity` (PGN 130313):
     - **source** (*Optional*, default `inside`): `inside` or `outside`.
     - **actual** (**Required**): Sensor ID, percent.

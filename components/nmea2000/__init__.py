@@ -41,6 +41,7 @@ CONF_ACTUAL = "actual"
 PGN_BATTERY_STATUS = "battery_status"
 PGN_DC_DETAILED_STATUS = "dc_detailed_status"
 PGN_TEMPERATURE = "temperature"
+PGN_TEMPERATURE_EXTENDED = "temperature_extended"
 PGN_HUMIDITY = "humidity"
 
 nmea2000_ns = cg.esphome_ns.namespace("nmea2000")
@@ -138,6 +139,12 @@ TRANSMIT_SCHEMA = cv.typed_schema(
                 cv.Required(CONF_ACTUAL): cv.use_id(sensor.Sensor),
             }
         ),
+        PGN_TEMPERATURE_EXTENDED: _transmit_base("5s").extend(
+            {
+                cv.Required(CONF_SOURCE): cv.enum(TEMP_SOURCES, lower=True),
+                cv.Required(CONF_ACTUAL): cv.use_id(sensor.Sensor),
+            }
+        ),
         PGN_HUMIDITY: _transmit_base("5s").extend(
             {
                 cv.Optional(CONF_SOURCE, default="inside"): cv.enum(
@@ -230,6 +237,11 @@ async def to_code(config):
         elif pgn == PGN_TEMPERATURE:
             actual = await cg.get_variable(item[CONF_ACTUAL])
             cg.add(var.add_temperature(interval, instance, item[CONF_SOURCE], actual))
+        elif pgn == PGN_TEMPERATURE_EXTENDED:
+            actual = await cg.get_variable(item[CONF_ACTUAL])
+            cg.add(
+                var.add_temperature_extended(interval, instance, item[CONF_SOURCE], actual)
+            )
         elif pgn == PGN_HUMIDITY:
             actual = await cg.get_variable(item[CONF_ACTUAL])
             cg.add(var.add_humidity(interval, instance, item[CONF_SOURCE], actual))

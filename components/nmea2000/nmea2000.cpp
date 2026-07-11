@@ -98,6 +98,12 @@ void Nmea2000Component::add_temperature(uint32_t interval_ms, uint8_t instance, 
       {PgnKind::TEMPERATURE, interval_ms, instance, static_cast<uint8_t>(source), actual, nullptr, nullptr});
 }
 
+void Nmea2000Component::add_temperature_extended(uint32_t interval_ms, uint8_t instance, TempSource source,
+                                                 sensor::Sensor *actual) {
+  this->transmit_entries_.push_back(
+      {PgnKind::TEMPERATURE_EXTENDED, interval_ms, instance, static_cast<uint8_t>(source), actual, nullptr, nullptr});
+}
+
 void Nmea2000Component::add_humidity(uint32_t interval_ms, uint8_t instance, HumiditySource source,
                                      sensor::Sensor *actual) {
   this->transmit_entries_.push_back(
@@ -145,6 +151,13 @@ void Nmea2000Component::send_entry_(TransmitEntry &entry) {
       if (!N2kIsNA(temperature))
         temperature = CToKelvin(temperature);
       SetN2kTemperature(msg, 0xff, entry.instance, static_cast<tN2kTempSource>(entry.enum_value), temperature);
+      break;
+    }
+    case PgnKind::TEMPERATURE_EXTENDED: {
+      double temperature = sensor_value_or_na(entry.a);
+      if (!N2kIsNA(temperature))
+        temperature = CToKelvin(temperature);
+      SetN2kTemperatureExt(msg, 0xff, entry.instance, static_cast<tN2kTempSource>(entry.enum_value), temperature);
       break;
     }
     case PgnKind::HUMIDITY: {

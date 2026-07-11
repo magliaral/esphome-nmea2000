@@ -73,6 +73,7 @@ class Nmea2000Component : public Component {
   void add_dc_detailed_status(uint32_t interval_ms, uint8_t instance, DcType dc_type, sensor::Sensor *state_of_charge,
                               sensor::Sensor *time_remaining);
   void add_temperature(uint32_t interval_ms, uint8_t instance, TempSource source, sensor::Sensor *actual);
+  void add_temperature_extended(uint32_t interval_ms, uint8_t instance, TempSource source, sensor::Sensor *actual);
   void add_humidity(uint32_t interval_ms, uint8_t instance, HumiditySource source, sensor::Sensor *actual);
 
   void register_sensor(Nmea2000Sensor *sens) { this->sensors_.push_back(sens); }
@@ -84,8 +85,9 @@ class Nmea2000Component : public Component {
   enum class PgnKind : uint8_t {
     BATTERY_STATUS,      // PGN 127508, single frame
     DC_DETAILED_STATUS,  // PGN 127506, fast packet
-    TEMPERATURE,         // PGN 130312
-    HUMIDITY,            // PGN 130313
+    TEMPERATURE,           // PGN 130312
+    TEMPERATURE_EXTENDED,  // PGN 130316, extended range/resolution
+    HUMIDITY,              // PGN 130313
   };
 
   struct TransmitEntry {
